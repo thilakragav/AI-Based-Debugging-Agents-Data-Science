@@ -1,0 +1,22 @@
+# Python virtual environments
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Testing / tooling
+.pytest_cache/
+
+# Streamlit secrets
+.streamlit/secrets.toml

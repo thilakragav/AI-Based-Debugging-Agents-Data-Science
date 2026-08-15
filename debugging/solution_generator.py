@@ -3,6 +3,8 @@ import re
 
 from debugging.llm import get_llm
 
+# Evidence-aware solution schema: CONFIRMED / PROBABLE / UNKNOWN root cause status.
+
 
 # =========================================================
 # RESPONSE NORMALIZER
@@ -197,6 +199,10 @@ def validate_solution(result):
     required_fields = [
         "problem",
         "root_cause",
+        "root_cause_status",
+        "evidence",
+        "contradicting_evidence",
+        "confidence",
         "solution",
         "corrected_code",
         "verification_steps",
@@ -266,6 +272,60 @@ def validate_solution(result):
         str(step)
         for step in result["verification_steps"]
     ]
+
+    # -----------------------------------------------------
+    # Validate root cause status
+    # -----------------------------------------------------
+
+    valid_statuses = {
+        "CONFIRMED",
+        "PROBABLE",
+        "UNKNOWN"
+    }
+
+    status = str(
+        result["root_cause_status"]
+    ).upper().strip()
+
+    if status not in valid_statuses:
+        status = "UNKNOWN"
+
+    result["root_cause_status"] = status
+
+    # -----------------------------------------------------
+    # Validate evidence fields
+    # -----------------------------------------------------
+
+    for field in [
+        "evidence",
+        "contradicting_evidence"
+    ]:
+        if result[field] is None:
+            result[field] = []
+
+        if not isinstance(result[field], list):
+            result[field] = [str(result[field])]
+
+        result[field] = [
+            str(item)
+            for item in result[field]
+        ]
+
+    # -----------------------------------------------------
+    # Validate confidence
+    # -----------------------------------------------------
+
+    try:
+        confidence = float(result["confidence"])
+    except (TypeError, ValueError):
+        confidence = 0
+
+    confidence = max(
+        0,
+        min(100, confidence)
+    )
+
+    result["confidence"] = confidence
 
     return result
 
@@ -495,6 +555,41 @@ NEVER contradict verified debugging tool evidence.
 
 
 ==========================================================
+ROOT CAUSE PRIORITY RULE
+==========================================================
+
+When determining the root cause, distinguish the immediate
+primary failure from broader environmental or contextual issues.
+
+Use this priority order:
+
+1. Direct exception or error message from the debugging tool.
+2. Concrete tool state showing the failed component.
+3. Code or specialist analysis identifying the failing operation.
+4. Environment warnings, compatibility warnings, or general
+   platform information.
+
+The PRIMARY root cause must explain the immediate failure
+reported by the tool.
+
+Do NOT mark a broad environmental warning as the CONFIRMED
+primary root cause when the debugging tool provides a more
+specific direct exception.
+
+When multiple issues are present:
+- Identify the immediate failure as the PRIMARY root cause.
+- Treat broader environment/configuration issues as secondary
+  context unless they directly explain the exception.
+- Include secondary issues in evidence when relevant.
+- Use PROBABLE when the evidence strongly suggests the cause
+  but does not uniquely prove it.
+- Use UNKNOWN when the available evidence is insufficient.
+
+A root cause may be CONFIRMED only when concrete evidence
+directly establishes that it caused the reported failure.
+
+
+==========================================================
 CRITICAL DEBUGGING RULES
 ==========================================================
 
@@ -666,6 +761,54 @@ Instead:
 
 
 ==========================================================
+PRIMARY VS SECONDARY ROOT CAUSE EXAMPLE
+==========================================================
+
+Suppose a tool reports both:
+
+- A specific exception such as:
+  AirflowConfigException: Cannot use relative path:
+  sqlite:///C:\\Users\\user\\airflow\\airflow.db
+
+- A broader warning that native Windows execution is not
+  supported or has compatibility limitations.
+
+The SQLite connection/path exception is the PRIMARY immediate
+failure because it is the concrete exception that terminated
+the operation.
+
+The Windows compatibility warning is SECONDARY CONTEXT unless
+the available evidence directly proves that Windows caused the
+specific exception.
+
+Therefore, do NOT automatically produce:
+
+root_cause_status: "CONFIRMED"
+root_cause: "Airflow cannot run on Windows."
+
+Instead, prefer:
+
+root_cause_status: "PROBABLE"
+
+root_cause:
+"The immediate failure is caused by the invalid SQLite
+connection/path configuration. Native Windows compatibility
+is an additional environment constraint."
+
+evidence:
+- "Airflow raised AirflowConfigException for the SQLite URL."
+- "The failing SQLite URL contains the Windows filesystem path."
+- "Airflow also reported a Windows compatibility warning."
+
+contradicting_evidence:
+- "The evidence does not prove that Windows itself is the
+  sole immediate cause of the SQLite configuration exception."
+
+The exact wording may differ, but the primary exception must
+remain the focus of the diagnosis.
+
+
+==========================================================
 IMPORTANT EXAMPLE
 ==========================================================
 
@@ -775,6 +918,18 @@ The JSON must contain EXACTLY these fields:
 
     "root_cause": "string",
 
+    "root_cause_status": "CONFIRMED | PROBABLE | UNKNOWN",
+
+    "evidence": [
+        "string"
+    ],
+
+    "contradicting_evidence": [
+        "string"
+    ],
+
+    "confidence": 0,
+
     "solution": "string",
 
     "corrected_code": "string",
@@ -797,6 +952,34 @@ Describe what is actually failing.
 
 root_cause:
 Explain why the failure occurs using available evidence.
+
+root_cause_status:
+Use:
+- CONFIRMED only when the direct debugging evidence establishes
+  that the proposed root cause caused the immediate failure.
+- PROBABLE when the evidence strongly suggests the root cause
+  but does not uniquely prove it.
+- UNKNOWN when the available evidence is insufficient.
+
+Do not use CONFIRMED merely because an environmental warning,
+compatibility warning, or general platform limitation is present.
+
+evidence:
+List the concrete facts from debugging tools, code analysis,
+specialist analysis, or other available evidence that support
+the root cause.
+
+contradicting_evidence:
+List any evidence that conflicts with the proposed root cause.
+Use an empty list when there is no contradiction.
+
+confidence:
+Provide a number from 0 to 100 representing confidence
+in the root cause.
+
+IMPORTANT:
+Do not use a high confidence value when evidence is contradictory
+or insufficient.
 
 solution:
 Explain the recommended fix.
@@ -891,6 +1074,24 @@ Explain how to prevent the same issue in the future.
     print("\nRoot Cause:")
     print(
         result["root_cause"]
+    )
+
+    print("\nRoot Cause Status:")
+    print(
+        result["root_cause_status"]
+    )
+
+    print("\nEvidence:")
+    for item in result["evidence"]:
+        print(f"- {item}")
+
+    print("\nContradicting Evidence:")
+    for item in result["contradicting_evidence"]:
+        print(f"- {item}")
+
+    print("\nConfidence:")
+    print(
+        f"{result['confidence']}%"
     )
 
     print("\nSolution:")

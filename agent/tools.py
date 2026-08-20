@@ -5,6 +5,7 @@ from debugging.code_analyzer import analyze_code
 from debugging.solution_generator import generate_solution
 from debugging.verifier import verify_solution
 from debugging.tool_router import route_debugging_tool
+from debugging.code_execution import execute_python_code
 
 from debugging.python_tools import (
     check_python_environment,
@@ -284,6 +285,28 @@ def python_import_tool(
 
     return check_import(
         package_name
+    )
+
+
+# =========================================================
+# SAFE CORRECTED CODE EXECUTION TOOL
+# =========================================================
+
+def corrected_code_execution_tool(
+    corrected_code,
+    timeout=10,
+):
+    """
+    Execute LLM-generated corrected Python code
+    in a controlled temporary environment.
+
+    This wrapper keeps code execution centralized in
+    agent/tools.py alongside the existing debugging tools.
+    """
+
+    return execute_python_code(
+        code=corrected_code,
+        timeout=timeout,
     )
 
 
